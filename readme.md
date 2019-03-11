@@ -400,4 +400,104 @@
 
 
 ## Chapter 8: The Trouble with Distributed Systems
-- 
+##### Faults & Partial Failures
+- 1 computer designed in a way that failure is always complete, complete crash or correct result returned, no wrong result
+- For distributed system, nondeterministic partial failure is common, may not even know sth fails or succeeds
+
+##### Cloud Computing & Supercomputing
+- high-performance computing -> thousands of CPUs for computationally intensive tasks
+  - checkpoints state of computation into durable storage, if one node fails, stop the cluster workload and restart from the last checkpoint
+- cloud -> multi-tenant datacenters, elastic resource allocation
+  - in a system with thousands of nodes, reasonable to assume something is always broken
+  - useful feature when a system can tolerate failed nodes yet keep working as a whole
+  - communication over internet for geographically distributed deployment
+- traditional enterprise dc in bet/w
+
+###### Distributed system is essentially a reliable system from unreliable components
+- System can only be as reliable as the least reliable component (the weakest link)
+- e.g. TCP on IP to ensure missing packets are retransmitted, duplicates eliminated
+
+#### Unreliable Networks
+1. request Lost
+2. request in the queue
+3. remote node failed
+4. remote node temporarily stops responding (e.g. GC)
+5. response lost over network (e.g. routed wrongly)
+6. response delayed
+
+#### after a chain of request/response
+- client may face lots of uncertainties
+- if no response, impossible to tell why
+- assuming timeout, after a while, assume no response
+
+#### Detecting Faults
+- e.g. load balancer stops sending requests to a dead node
+- if leader dies, follower promoted in a distributed database environment
+- OS level configuration to send response, port listening
+- Incorrect detection (e.g. think some node down when it is up) may lead to (e.g. email getting sent twice, higher load for others, cascading failure since all nodes become slow)
+
+#### Network Congestion
+- many nodes send packets to the same destination
+- CPU cores busy, incoming request queued by OS
+- VM waits for host CPU core
+- TCP flow control to limits its own rate of sending
+- UDP becomes better when delayed data is worthless
+- Internet or threads in OS shares resources dynamically, unlike phone call which has a fixed bandwidth
+- result: timeout value should be chosen experimentally
+
+#### Unreliable Clocks
+- different machines have different notions of time: common corrective mechanism is Network Time Protocol (NTP)
+- time-of-day clock: current date & time vs monotonic clock: to measure duration, ususally fine to measure elapsed time in a distributed system
+- quartz clock in a computer drifts, Google assumes 6ms every 30 seconds
+- if clock differs too much from an NTP server, local clock forcibly reset -> time goes backwards
+- need lots of resources to ensure sync (only companies like HFT do it)
+- not only network, software needs to assume clock may be wrong
+- client A,B send events to C, clock drift will lead to wrong order of events
+- Last write wins may not be sufficient in guarantying order, additional tracking mechanisms such as version vectors needed to prevent violations of causality, check "Detecting Concurrent Writes" earlier
+- clock accurate to a confidence interval (Google TrueTime API in Spanner reports the confidence level)
+- Google has transaction wait for confidence level before committing to achieve accuracy
+
+#### Process Pauses
+- GC may pause all threads for a while
+- VM suspended
+- OS context switch
+- wait for I/O to complete
+- node in a distributed system needs to assume that its execution can be paused for some time
+- entire software stack to support "real time", may even be slower due to priority on timely responses (e.g. software to release car airbag)
+- for GC, application warn an upcoming GC, then clients stop sending requests to this server
+
+#### Truth defined by the majority
+- a node cannot trust its own notion of anything (e.g. after GC pauses)
+- many distributed algorithms rely on a quorum (voting among nodes)
+##### the leader and the lock
+- only 1 node allowed to be the leader for a database partition
+- only 1 transaction to hold the lock for a particular resource
+- only 1 user allowed to register a particular username
+- wrong e.g. a node thinks itself a leader after declared dead or resumes its supposed-to-stop operations; a client holding lease is paused and lease expires, another client gets the lease and starts writing, when paused client comes back, proceed with writing -> wrong data (old HBase bug)
+- solution to the lease case, allocate a fencing token which gets validated during write, if number smaller than the one stored, reject (ZooKeeper has zxid concept)
+
+#### Byzantine Faults
+- when nodes may deliberately lie :-(
+- traitors in Byzantine Generals
+- e.g. aerospace when CPU register could become corrupted by radiation, Bitcoin
+- weak forms of lying, corrupted network packets, client inputs, NTP data
+
+#### System Model & Reality
+- synchronous model: assumes bounded network delay
+- partially synchronous model: bound for most of time
+- Asynchronous model: no time assumption, no clocks
+- node:
+  1. crash-stop: failed node not coming back
+  2. crash-recovery faults: nodes assumed to have stable storage, can come back
+  3. byzantine faults: nodes can be evil
+
+##### correctness of an algorithm
+- uniqueness: no 2 requests for a fencing token return the same value
+- monotonic sequence: tx with x completing before y should be less than ty
+- availability: node requests a fencing token and does not crash should receive a response
+- uniqueness & monotonic sequence are for safety, availability for liveliness
+- safety: nothing bad happens, liveliness: something good eventually happens
+- for distributed algorithms, safety properties need to always hold, but alright for liveliness properties to fail sometimes
+
+
+## Chapter 9: Consistency & Consensus
